@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Анализ ГПЗУ</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #e0e0e0; font-family: sans-serif; padding: 20px; }
+  h2 { text-align: center; color: #2ecc71; margin-bottom: 10px; }
+  p { text-align: center; color: #a0a0a0; margin-bottom: 20px; }
+
+  .upload-area {
+    border: 2px dashed rgba(46,204,113,0.4);
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    margin-bottom: 20px;
+    cursor: pointer;
+  }
+  .upload-area:hover { border-color: #2ecc71; }
+  .upload-area input { display: none; }
+  .upload-btn {
+    background: #2ecc71;
+    color: #000;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .upload-btn:hover { background: #27ae60; }
+
+  #status {
+    text-align: center;
+    color: #2ecc71;
+    margin-bottom: 15px;
+    min-height: 24px;
+  }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    background: rgba(20,22,26,0.9);
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+  .controls button {
+    background: transparent;
+    border: 1px solid rgba(46,204,113,0.5);
+    color: #e0e0e0;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .controls button:hover { border-color: #2ecc71; color: #2ecc71; }
+  .add-btn {
+    background: #2ecc71 !important;
+    color: #000 !important;
+    font-weight: bold;
+    border: none !important;
+  }
+  .clear-btn { border-color: rgba(231,76,60,0.5) !important; color: #e74c3c !important; }
+  .slider-group { display: flex; align-items: center; gap: 6px; }
+  .slider-group span { color: #a0a0a0; font-size: 0.8rem; }
+  .slider-group input[type=range] { width: 80px; accent-color: #2ecc71; }
+  .slider-group b { color: #2ecc71; font-size: 0.85rem; min-width: 35px; }
+  .divider { width: 1px; height: 25px; background: rgba(46,204,113,0.3); }
+
+  .canvas-wrapper {
+    background: #111;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+  }
+  canvas { display: block; }
+
+  #toast {
+    display: none;
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #e74c3c;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    z-index: 1000;
+  }
+</style>
+</head>
+<body>
+
+<h2>Анализ ГПЗУ</h2>
+<p>Загрузите ваш ГПЗУ и разместите здание на участке</p>
+
+<div class="upload-area" onclick="document.getElementById('fileInput').click()">
+  <input type="file" id="fileInput" accept=".pdf" onchange="uploadFile(this)">
+  <p style="margin-bottom:15px;">Нажмите чтобы загрузить PDF с ГПЗУ</p>
+  <button class="upload-btn">📄 Выбрать файл</button>
+</div>
+
+<div id="status"></div>
+
+<div class="controls" id="controls" style="display:none;">
+  <button class="add-btn" onclick="addBuilding()">+ Добавить здание</button>
+  <div class="slider-group">
+    <span>Ш:</span>
+    <input type="range" id="widthRange" min="15" max="24" value="15" step="3" oninput="updateBuildingSize()">
+    <b id="widthVal">15 м</b>
+  </div>
+  <div class="slider-group">
+    <span>Д:</span>
+    <input type="range" id="lengthRange" min="18" max="78" value="36" step="6" oninput="updateBuildingSize()">
+    <b id="lengthVal">36 м</b>
+  </div>
+  <div class="divider"></div>
+  <button onclick="rotateBuildingStep(-90)">◄ 90°</button>
+  <div class="slider-group">
+    <input type="range" min="0" max="359" value="0" id="rotSlider" style="width:80px;" oninput="rotateBuildingTo(+this.value)">
+    <b id="rotVal">0°</b>
+  </div>
+  <button onclick="rotateBuildingStep(90)">90° ►</button>
+  <div class="divider"></div>
+  <button onclick="resetBuilding()">Сброс</button>
+  <button onclick="removeBuilding()">Удалить</button>
+  <button class="clear-btn" onclick="clearAll()">Очистить</button>
+</div>
+
+<div class="canvas-wrapper">
+  <canvas id="canvas" width="700" height="600"></canvas>
+</div>
+
+<div id="toast">⚠️ Выход за зону застройки</div>
+
+<script>
+const API_URL = 'http://127.0.0.1:5000/api/analyze-gpzu';
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let parcelCoords = [];
+let parcelCenter = {x:0, y:0};
+let scale = 1;
+let offsetX = 0, offsetY = 0;
+let buildings = [];
+let activeIdx = -1;
+let dragging = false;
+let dragOffX = 0, dragOffY = 0;
+let setback = 3;
+let cadastralNumber = '';
+
+// --- Загрузка файла ---
+async function uploadFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('status').textContent = '⏳ Анализируем ГПЗУ...';
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const res = await fetch(API_URL, { method: 'POST', body: formData });
+    const data = await res.json();
+    const parsed = JSON.parse(data.extracted_json);
+    const parcel = parsed.parcels[0];
+    cadastralNumber = parcel.cadastral_number;
+    setback = parcel.setback || 3;
+    parcelCoords = parcel.coordinates;
+    document.getElementById('status').textContent = `✅ Участок загружен: ${cadastralNumber} (${parcel.area_sqm} кв.м)`;
+    document.getElementById('controls').style.display = 'flex';
+    fitParcel();
+    redraw();
+  } catch(e) {
+    document.getElementById('status').textContent = '❌ Ошибка при анализе файла';
+    console.error(e);
+  }
+}
+
+// --- Масштабирование участка под canvas ---
+function fitParcel() {
+  const xs = parcelCoords.map(p=>p.x);
+  const ys = parcelCoords.map(p=>p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const pw = maxX - minX, ph = maxY - minY;
+  const padding = 60;
+  scale = Math.min((canvas.width-padding*2)/pw, (canvas.height-padding*2)/ph);
+  parcelCenter.x = (minX+maxX)/2;
+  parcelCenter.y = (minY+maxY)/2;
+  offsetX = canvas.width/2;
+  offsetY = canvas.height/2;
+}
+
+function toCanvas(x, y) {
+  return {
+    x: offsetX + (x - parcelCenter.x) * scale,
+    y: offsetY - (y - parcelCenter.y) * scale
+  };
+}
+
+function toWorld(cx, cy) {
+  return {
+    x: (cx - offsetX) / scale + parcelCenter.x,
+    y: -((cy - offsetY) / scale) + parcelCenter.y
+  };
+}
+
+// --- Отрисовка ---
+function redraw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if (!parcelCoords.length) return;
+
+  const pts = parcelCoords.map(p=>toCanvas(p.x,p.y));
+
+  // Заливка участка
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  pts.forEach(p=>ctx.lineTo(p.x,p.y));
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(46,204,113,0.15)';
+  ctx.fill();
+  ctx.strokeStyle = '#2ecc71';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Пунктир отступов
+  const sbPx = setback * scale;
+  const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length;
+  const cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,200,0,0.6)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6,4]);
+  ctx.beginPath();
+  pts.forEach((p,i)=>{
+    const dx = p.x-cx, dy = p.y-cy;
+    const d = Math.sqrt(dx*dx+dy*dy);
+    const nx = cx + dx*(d-sbPx)/d;
+    const ny = cy + dy*(d-sbPx)/d;
+    i===0 ? ctx.moveTo(nx,ny) : ctx.lineTo(nx,ny);
+  });
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+
+  // Кадастровый номер
+  ctx.fillStyle = 'rgba(46,204,113,0.7)';
+  ctx.font = '13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(cadastralNumber, offsetX, offsetY+10);
+
+  // Здания
+  buildings.forEach((b,i)=>drawBuilding(b,i===activeIdx));
+}
+
+function drawBuilding(b, isActive) {
+  const wPx = b.w * scale;
+  const hPx = b.h * scale;
+  const cp = toCanvas(b.x, b.y);
+
+  ctx.save();
+  ctx.translate(cp.x, cp.y);
+  ctx.rotate(b.angle * Math.PI/180);
+
+  const outside = isBuildingOutside(b);
+  ctx.fillStyle = outside ? 'rgba(231,76,60,0.7)' : 'rgba(46,204,113,0.6)';
+  ctx.strokeStyle = outside ? '#e74c3c' : (isActive ? '#fff' : '#2ecc71');
+  ctx.lineWidth = isActive ? 2 : 1;
+  ctx.fillRect(-wPx/2, -hPx/2, wPx, hPx);
+  ctx.strokeRect(-wPx/2, -hPx/2, wPx, hPx);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = `${Math.max(10, Math.min(14, wPx/4))}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${b.w}×${b.h}`, 0, 0);
+  ctx.restore();
+
+  if (outside) showToast();
+}
+
+// --- Проверка выхода за участок ---
+function isBuildingOutside(b) {
+  const cp = toCanvas(b.x, b.y);
+  const wPx = b.w * scale / 2;
+  const hPx = b.h * scale / 2;
+  const corners = [
+    {x: -wPx, y: -hPx}, {x: wPx, y: -hPx},
+    {x: wPx, y: hPx}, {x: -wPx, y: hPx}
+  ].map(c => {
+    const cos = Math.cos(b.angle*Math.PI/180);
+    const sin = Math.sin(b.angle*Math.PI/180);
+    return { x: cp.x + c.x*cos - c.y*sin, y: cp.y + c.x*sin + c.y*cos };
+  });
+  const pts = parcelCoords.map(p=>toCanvas(p.x,p.y));
+  return corners.some(c => !pointInPolygon(c, pts));
+}
+
+function pointInPolygon(point, polygon) {
+  let inside = false;
+  for (let i=0, j=polygon.length-1; i<polygon.length; j=i++) {
+    const xi=polygon[i].x, yi=polygon[i].y;
+    const xj=polygon[j].x, yj=polygon[j].y;
+    if (((yi>point.y)!==(yj>point.y)) && (point.x<(xj-xi)*(point.y-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+
+let toastTimer;
+function showToast() {
+  const t = document.getElementById('toast');
+  t.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.style.display='none', 2000);
+}
+
+// --- Управление зданиями ---
+function addBuilding() {
+  const w = +document.getElementById('widthRange').value;
+  const h = +document.getElementById('lengthRange').value;
+  buildings.push({ x: parcelCenter.x, y: parcelCenter.y, w, h, angle: 0 });
+  activeIdx = buildings.length - 1;
+  redraw();
+}
+
+function updateBuildingSize() {
+  const w = +document.getElementById('widthRange').value;
+  const h = +document.getElementById('lengthRange').value;
+  document.getElementById('widthVal').textContent = w + ' м';
+  document.getElementById('lengthVal').textContent = h + ' м';
+  if (activeIdx < 0) return;
+  buildings[activeIdx].w = w;
+  buildings[activeIdx].h = h;
+  redraw();
+}
+
+function removeBuilding() {
+  if (activeIdx < 0) return;
+  buildings.splice(activeIdx, 1);
+  activeIdx = Math.min(activeIdx, buildings.length-1);
+  redraw();
+}
+
+function clearAll() {
+  buildings = [];
+  activeIdx = -1;
+  redraw();
+}
+
+function resetBuilding() {
+  if (activeIdx < 0) return;
+  buildings[activeIdx].x = parcelCenter.x;
+  buildings[activeIdx].y = parcelCenter.y;
+  buildings[activeIdx].angle = 0;
+  document.getElementById('rotSlider').value = 0;
+  document.getElementById('rotVal').textContent = '0°';
+  redraw();
+}
+
+function rotateBuildingStep(deg) {
+  if (activeIdx < 0) return;
+  buildings[activeIdx].angle = ((buildings[activeIdx].angle + deg) % 360 + 360) % 360;
+  document.getElementById('rotSlider').value = buildings[activeIdx].angle;
+  document.getElementById('rotVal').textContent = buildings[activeIdx].angle + '°';
+  redraw();
+}
+
+function rotateBuildingTo(deg) {
+  if (activeIdx < 0) return;
+  buildings[activeIdx].angle = deg;
+  document.getElementById('rotVal').textContent = deg + '°';
+  redraw();
+}
+
+// --- Drag & Drop ---
+canvas.addEventListener('mousedown', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  buildings.forEach((b,i) => {
+    const cp = toCanvas(b.x, b.y);
+    const dx = mx - cp.x, dy = my - cp.y;
+    if (Math.abs(dx) < b.w*scale/2+10 && Math.abs(dy) < b.h*scale/2+10) {
+      activeIdx = i;
+      dragging = true;
+      dragOffX = dx;
+      dragOffY = dy;
+    }
+  });
+  redraw();
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!dragging || activeIdx < 0) return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const wp = toWorld(mx - dragOffX, my - dragOffY);
+  buildings[activeIdx].x = wp.x;
+  buildings[activeIdx].y = wp.y;
+  redraw();
+});
+
+canvas.addEventListener('mouseup', () => dragging = false);
+canvas.addEventListener('mouseleave', () => dragging = false);
+</script>
+</body>
+</html>
