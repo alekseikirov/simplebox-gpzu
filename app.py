@@ -47,7 +47,7 @@ def analyze_gpzu():
                 {"parcels": [{"cadastral_number": "номер", "area_sqm": 0, "coordinates": [{"x": 0, "y": 0}], "address": "полный адрес", "land_use_types_main": ["ВРИ 1"], "land_use_types_conditional": ["ВРИ 1"], "setback": 0, "max_coverage_percent": null, "max_floors": null, "restrictions": ["ограничение 1"]}]}
 
                 Текст ГПЗУ:
-                """ + text[:15000]
+                """ + text
             }
         ]
     )
