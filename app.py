@@ -32,7 +32,7 @@ def analyze_gpzu():
         messages=[
             {
                 "role": "user",
-                "content": "Из этого текста ГПЗУ извлеки данные и верни ТОЛЬКО JSON без пояснений: {\"parcels\": [{\"cadastral_number\": \"кадастровый номер\", \"area_sqm\": 0, \"coordinates\": [{\"x\": 0, \"y\": 0}], \"setback\": 0}]}\n\nТекст ГПЗУ:\n" + text[:8000]
+                "content": "Из этого текста ГПЗУ извлеки данные и верни ТОЛЬКО JSON без пояснений: {\"parcels\": [{\"cadastral_number\": \"кадастровый номер\", \"area_sqm\": 0, \"coordinates\": [{\"x\": 0, \"y\": 0}], \"setback\": 0, \"address\": \"адрес участка\", \"land_use_types\": [\"ВРИ 1\", \"ВРИ 2\"], \"red_lines\": \"Нет или описание\", \"max_coverage_percent\": \"число или Не указано\", \"max_floors\": \"число или Не указано\", \"restrictions\": [\"ограничение 1\", \"ограничение 2\"]}]}\n\nТекст ГПЗУ:\n" + text[:8000]
             }
         ]
     )
