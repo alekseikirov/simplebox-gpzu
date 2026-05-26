@@ -43,7 +43,8 @@ def upload_to_drive(service, file_bytes, filename, mime_type):
     uploaded = service.files().create(
         body=file_metadata,
         media_body=media,
-        fields="id"
+        fields="id",
+        supportsAllDrives=True
     ).execute()
 
     file_id = uploaded.get("id")
@@ -51,7 +52,8 @@ def upload_to_drive(service, file_bytes, filename, mime_type):
     # Делаем файл доступным по ссылке (anyone with link can view)
     service.permissions().create(
         fileId=file_id,
-        body={"type": "anyone", "role": "reader"}
+        body={"type": "anyone", "role": "reader"},
+        supportsAllDrives=True
     ).execute()
 
     # Возвращаем прямую ссылку для просмотра
