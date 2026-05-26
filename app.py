@@ -7,57 +7,31 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import anthropic
 import fitz  # PyMuPDF
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+import cloudinary
+import cloudinary.uploader
 
 app = Flask(__name__)
 CORS(app)
 
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-GOOGLE_DRIVE_FOLDER_ID = "1E-3VDtIpXmty8oKTk5xEN4Hcvp-7xQyo"
+cloudinary.config(
+    cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.environ.get("CLOUDINARY_API_KEY"),
+    api_secret=os.environ.get("CLOUDINARY_API_SECRET")
+)
 
-def get_drive_service():
-    """Создаём подключение к Google Drive через сервисный аккаунт."""
-    creds_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-    creds_dict = json.loads(creds_json)
-    creds = service_account.Credentials.from_service_account_info(
-        creds_dict,
-        scopes=["https://www.googleapis.com/auth/drive"]
+
+def upload_to_cloudinary(file_bytes, filename, resource_type):
+    """Загружает файл в Cloudinary и возвращает публичную ссылку."""
+    result = cloudinary.uploader.upload(
+        file_bytes,
+        public_id=filename,
+        resource_type=resource_type,
+        folder="gpzu",
+        overwrite=True
     )
-    return build("drive", "v3", credentials=creds)
-
-
-def upload_to_drive(service, file_bytes, filename, mime_type):
-    """Загружает файл в Google Drive и возвращает публичную ссылку."""
-    file_metadata = {
-        "name": filename,
-        "parents": [GOOGLE_DRIVE_FOLDER_ID]
-    }
-    media = MediaIoBaseUpload(
-        io.BytesIO(file_bytes),
-        mimetype=mime_type,
-        resumable=False
-    )
-    uploaded = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id",
-        supportsAllDrives=True
-    ).execute()
-
-    file_id = uploaded.get("id")
-
-    # Делаем файл доступным по ссылке (anyone with link can view)
-    service.permissions().create(
-        fileId=file_id,
-        body={"type": "anyone", "role": "reader"},
-        supportsAllDrives=True
-    ).execute()
-
-    # Возвращаем прямую ссылку для просмотра
-    return f"https://drive.google.com/file/d/{file_id}/view"
+    return result.get("secure_url")
 
 
 PROMPT = """Из этого ГПЗУ извлеки данные и верни ТОЛЬКО JSON без пояснений.
@@ -355,25 +329,24 @@ def analyze_gpzu():
 
 @app.route('/api/upload-files', methods=['POST'])
 def upload_files():
-    """Принимает PNG чертежа и PDF, загружает в Google Drive, возвращает ссылки."""
+    """Принимает PNG чертежа и PDF, загружает в Cloudinary, возвращает ссылки."""
     try:
         unique_id = str(uuid.uuid4())[:8]
-        service = get_drive_service()
         result = {}
 
         # Загружаем PNG чертежа
         if 'png' in request.files:
             png_bytes = request.files['png'].read()
-            filename = f"gpzu-plan-{unique_id}.png"
-            url = upload_to_drive(service, png_bytes, filename, "image/png")
+            filename = f"gpzu-plan-{unique_id}"
+            url = upload_to_cloudinary(png_bytes, filename, "image")
             result['png_url'] = url
             print(f"PNG загружен: {url}")
 
         # Загружаем PDF
         if 'pdf' in request.files:
             pdf_bytes = request.files['pdf'].read()
-            filename = f"gpzu-doc-{unique_id}.pdf"
-            url = upload_to_drive(service, pdf_bytes, filename, "application/pdf")
+            filename = f"gpzu-doc-{unique_id}"
+            url = upload_to_cloudinary(pdf_bytes, filename, "raw")
             result['pdf_url'] = url
             print(f"PDF загружен: {url}")
 

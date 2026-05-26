@@ -26,5 +26,4 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 Werkzeug==3.1.8
 zipp==3.23.1
-google-auth==2.29.0
-google-api-python-client==2.131.0
+cloudinary==1.40.0
