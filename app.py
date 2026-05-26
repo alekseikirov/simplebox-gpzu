@@ -29,7 +29,9 @@ def upload_to_cloudinary(file_bytes, filename, resource_type):
         public_id=filename,
         resource_type=resource_type,
         folder="gpzu",
-        overwrite=True
+        overwrite=True,
+        use_filename=True,
+        unique_filename=False
     )
     return result.get("secure_url")
 
